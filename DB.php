@@ -1,6 +1,7 @@
 <?php
 
 /**
+ * 
  * A simple library to manage mysql connections.
  * 
  * To start using this library first call the method setConfig()
@@ -20,6 +21,10 @@
  */
 
 namespace kratu92;
+
+use InvalidArgumentException;
+use RuntimeException;
+use UnexpectedValueException;
 
 class DB {
     
@@ -42,7 +47,7 @@ class DB {
      * 
      * Private constructor for singleton pattern.
      * 
-     * @param string $connectionName - Name of the connection in the $config variable
+     * @param string $connectionName Name of the connection in the $config variable
      * 
      * @return void
      * 
@@ -74,6 +79,97 @@ class DB {
         
         $this->mysqli->set_charset("utf8");
     }
+
+    /**
+     * 
+     * Returns an array with the results of a select query
+     * 
+     * @param string $selectQuery Query to retrieve. Must start with SELECT
+     * 
+     * @return array
+     * 
+     * @throws UnexpectedValueException if the type of the query is not SELECT
+     * @throws RuntimeException if the query results in a mysql error
+     * 
+     * @access public
+     * 
+     */
+    public function getResults($selectQuery) {
+
+        if ( stripos($selectQuery, "SELECT") !== 0 ) {
+            throw new \UnexpectedValueException("The query is not a SELECT query.");
+        }
+
+        $queryResult = $this->mysqli->query($selectQuery);
+        
+        if ( !empty($this->mysqli->error) ) {
+            throw new \RuntimeException("Mysql error:
+                {$this->mysqli->connect_error}");
+        }
+
+        $result  = [];
+        
+        while ( $row = $queryResult->fetch_assoc() ) {
+            $result[] = $row;
+        }
+
+        $queryResult->close();
+
+        return $result;
+    }
+    
+    /**
+     * 
+     * Returns the first result for a query.
+     * 
+     * Common use: when you expect just one result.
+     * 
+     * @param string $selectQuery Query to retrieve. Must start with SELECT
+     * 
+     * @return array
+     * 
+     * @throws UnexpectedValueException if the type of the query is not SELECT
+     * @throws RuntimeException if the query results in a mysql error
+     * 
+     * @access public
+     * 
+     */
+    public function getFirstResult($selectQuery) {
+        $results = $this->getResults($selectQuery);
+        return $results[0] ?? null;
+    }
+
+    /**
+     * 
+     * Executes a query as in mysqli::query
+     * 
+     * @param string $query 
+     * 
+     * @return \mysqli_result
+     * 
+     * @access public
+     * 
+     */
+    public function query($query) {
+        return $this->mysqli->query($query);
+    }
+    
+    /**
+     * 
+     * Prepares an SQL statement for execution as in mysqli::prepare
+     * 
+     * @param string $query
+     * 
+     * @return \mysqli_stmt
+     * 
+     * @access public
+     * 
+     */
+    public function prepare($query) {
+        return $this->mysqli->prepare($query);
+    }
+
+
 
     /**
      * 
@@ -153,5 +249,4 @@ class DB {
 
         return self::$instance[$connectionName];
     }
-    
 }
