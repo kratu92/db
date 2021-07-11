@@ -256,7 +256,6 @@ class DB {
 		$columnNames = implode(",", $this->formatColumns(array_keys($columns)));
 		$values      = implode(',', array_fill(0, count($columns), '?'));
 		
-		$paramTypes       .= !empty($ODKUParamTypes) ? $ODKUParamTypes : "";
 		$this->queryParams = [ &$paramTypes ];
 
 		foreach ( $columns as $column => $value ) {
@@ -266,7 +265,7 @@ class DB {
 		$sql = "INSERT INTO `{$table}` ({$columnNames}) VALUES ({$values})
 			 ON DUPLICATE KEY UPDATE ";
 
-		$ODKUColumns     = is_array($ODKUColumns)  ? $ODKUColumns    : [];
+		$ODKUColumns = is_array($ODKUColumns) ? $ODKUColumns : [];
 
 		if ( empty($ODKUColumns) ) {
 
@@ -274,6 +273,8 @@ class DB {
 			$sql .= " `id` = `id`";
 
 		} else {
+
+			$paramTypes .= !empty($ODKUParamTypes) ? $ODKUParamTypes : "";
 
 			foreach ( $ODKUColumns as $column => $value ) {
 				$queryParams[] = &$ODKUColumns[$column];
