@@ -1,23 +1,23 @@
 <?php
 
 /**
- * 
+ *
  * A simple library to manage mysql connections.
- * 
+ *
  * To start using this library first call the method setConfig()
  * with all your connection settings.
- * 
+ *
  * After that you may get the instance for a connection with the
  * getInstance method.
- * 
+ *
  * PHP Version 7
- * 
+ *
  * @package   kratu92/db
  * @author    kratu92 Carlos Ortego Casado <kratux92@gmail.com>
  * @license   MIT License
  * @copyright 2021
  * @version   1.0
- * 
+ *
  */
 
 namespace kratu92;
@@ -70,18 +70,18 @@ class DB {
 	private $queryParams;
 
 	/**
-	 * 
+	 *
 	 * Private constructor for singleton pattern.
-	 * 
+	 *
 	 * @param string $connectionName Name of the connection in the $config variable
-	 * 
+	 *
 	 * @return void
-	 * 
+	 *
 	 * @throws \OutOfRangeException if connection does not exist in config
 	 * @throws \RuntimeException if the mysql connection cannot be established
-	 * 
+	 *
 	 * @access private
-	 * 
+	 *
 	 */
 	private function __construct($connectionName) {
 
@@ -205,9 +205,9 @@ class DB {
 	}
 
 	/**
-	 * 
+	 *
 	 * Inserts a row to the selected table
-	 * 
+	 *
 	 * @param string $table          Table where the data is going to be inserted
 	 * @param array  $columns        Associative array with the name of the column
 	 *                               and the value to insert.
@@ -223,15 +223,15 @@ class DB {
 	 *                               Default: No fields will be updated
 	 * @param string $ODKUParamTypes String with param types for $ODKUColumns
 	 *                               Same format as $paramTypes.
-	 * 
+	 *
 	 * @return int                   Returns the id of the inserted/updated row
-	 * 
+	 *
 	 * @throws \InvalidArgumentException if the table or columns are not provided.
 	 * @throws \UnexpectedValueException if there is a parameter mismatch.
 	 *                               	
-	 * 
+	 *
 	 * @access public
-	 * 
+	 *
 	 */
 
 	public function insert($table, $columns=[], $paramTypes="", 
@@ -308,14 +308,14 @@ class DB {
 	}
 
 	/**
-     * 
+	 *
 	 * Updates data from a table
-	 * 
-     * @param string $table       Table to update
-     * @param array  $columns     Associative array with the name of the column
+	 *
+	 * @param string $table       Table to update
+	 * @param array  $columns     Associative array with the name of the column
 	 *                            to update and the new value.
 	 *                            $columns = [ "columnName" => "value", ... ]
-     * @param array  $conditions  Array to define the query conditions
+	 * @param array  $conditions  Array to define the query conditions
 	 *                            The updated columns need to satisfy all conditions
 	 *                            Eg:
 	 *                            [
@@ -324,7 +324,7 @@ class DB {
 	 *                              "user_id" => [">", 3],      // Other operations
 	 *                              "title"   => "IS NOT NULL", // NULL operations
 	 *                            ]
-     * @param string $paramTypes  String with the param types. 
+	 * @param string $paramTypes  String with the param types. 
 	 *                            It must include types for both $columns and $conditions
 	 *                            One per column/condition.
 	 *                            	i = integer
@@ -332,32 +332,32 @@ class DB {
 	 *                            	s = strings/text/dates...
 	 *                            Eg: $paramTypes = "iis"
 	 *                            Exclude the type for IS (NOT) NULL conditions
-     * @return boolean
-	 * 
+	 * @return boolean
+	 *
 	 * @throws \InvalidArgumentException if table or columns are not selected
-	 * 
+	 *
 	 * @access public
-	 * 
-     */
-    function update($table, $columns, $conditions, $paramTypes) {
+	 *
+	 */
+	function update($table, $columns, $conditions, $paramTypes) {
 
-        if ( empty($table) || empty($columns) )  {
+		if ( empty($table) || empty($columns) )  {
 			throw new \InvalidArgumentException("Table or columns not selected.");
 		}
 
 		$this->resetQuery();
 
 		$table = self::sanitizeName($table);
-		
+
 		$columnsClause = $this->formatColumns(array_keys($columns), true);
 		$columnsClause = implode(",", $columnsClause);
 
 		$columnTypes       = substr($paramTypes, 0, count($columns));
-	    $this->queryParams = [ &$columnTypes ];
-		
-	    foreach ( $columns as $columnName => $value ) {
-		    $this->queryParams[] = &$columns[$columnName];
-	    }
+		$this->queryParams = [ &$columnTypes ];
+
+		foreach ( $columns as $columnName => $value ) {
+			$this->queryParams[] = &$columns[$columnName];
+		}
 
 		$whereClause = $this->getWhereClause(
 			$conditions, 
@@ -365,36 +365,36 @@ class DB {
 		);
 
 		$sql  = "UPDATE `{$table}` SET {$columnsClause} WHERE {$whereClause}";
-	    $stmt = $this->mysqli->prepare($sql);
-        
-        if ( empty($stmt) ) {
-            throw new \RuntimeException("Invalid query");
-        }
+		$stmt = $this->mysqli->prepare($sql);
 
-        $stmt->bind_param(...$this->queryParams);
-	    $stmt->execute();
+		if ( empty($stmt) ) {
+			throw new \RuntimeException("Invalid query");
+		}
 
-        if ( !empty($stmt->error) ) {
-            throw new \RuntimeException("An error ocurred when updating the table. 
+		$stmt->bind_param(...$this->queryParams);
+		$stmt->execute();
+
+		if ( !empty($stmt->error) ) {
+			throw new \RuntimeException("An error ocurred when updating the table. 
 				{$stmt->error}");
-        }
+		}
 
-	    return true;
-    }
+		return true;
+	}
 
 	/**
-	 * 
+	 *
 	 * Returns an array with the results of a select query
-	 * 
+	 *
 	 * @param string $selectQuery Query to retrieve. Must start with SELECT
-	 * 
+	 *
 	 * @return array
-	 * 
+	 *
 	 * @throws \UnexpectedValueException if the type of the query is not SELECT
 	 * @throws \RuntimeException if the query results in a mysql error
-	 * 
+	 *
 	 * @access public
-	 * 
+	 *
 	 */
 	public function getResults($selectQuery) {
 
@@ -421,20 +421,20 @@ class DB {
 	}
 	
 	/**
-	 * 
+	 *
 	 * Returns the first result for a query.
-	 * 
+	 *
 	 * Common use: when you expect just one result.
-	 * 
+	 *
 	 * @param string $selectQuery Query to retrieve. Must start with SELECT
-	 * 
+	 *
 	 * @return array
-	 * 
+	 *
 	 * @throws \UnexpectedValueException if the type of the query is not SELECT
 	 * @throws \RuntimeException if the query results in a mysql error
-	 * 
+	 *
 	 * @access public
-	 * 
+	 *
 	 */
 	public function getFirstResult($selectQuery) {
 		$results = $this->getResults($selectQuery);
@@ -442,30 +442,30 @@ class DB {
 	}
 
 	/**
-	 * 
+	 *
 	 * Executes a query as in mysqli::query
-	 * 
+	 *
 	 * @param string $query 
-	 * 
+	 *
 	 * @return \mysqli_result
-	 * 
+	 *
 	 * @access public
-	 * 
+	 *
 	 */
 	public function query($query) {
 		return $this->mysqli->query($query);
 	}
 	
 	/**
-	 * 
+	 *
 	 * Prepares an SQL statement for execution as in mysqli::prepare
-	 * 
+	 *
 	 * @param string $query
-	 * 
+	 *
 	 * @return \mysqli_stmt
-	 * 
+	 *
 	 * @access public
-	 * 
+	 *
 	 */
 	public function prepare($query) {
 		return $this->mysqli->prepare($query);
@@ -473,6 +473,7 @@ class DB {
 
 	/**
 	 * TO DO
+	 * @access private
 	 */
 	private function resetQuery() {
 		$this->queryParams = [];
@@ -480,11 +481,13 @@ class DB {
 
 	/**
 	 * TO DO
+	 * 
+	 * @access private
 	 */
 	private function formatColumns($columns, $isForUpdate=false) {
 
 		return array_map(
-			function($col) {
+			function ($col) use ($isForUpdate) {
 				$col = DB::sanitizeName($col);
 				return "`{$col}`" . ( $isForUpdate ? " = ?" : "" );
 			}, 
@@ -494,6 +497,7 @@ class DB {
 
 	/**
 	 * TO DO
+	 * @access private
 	 */
 	private function getWhereClause($conditions, $paramTypes) {
 
@@ -562,6 +566,7 @@ class DB {
 
 	/**
 	 * TO DO
+	 * @access private
 	 */
 	private function getOrderByClause($orderBy) {
 
@@ -587,6 +592,7 @@ class DB {
 
 	/**
 	 * TO DO
+	 * @access private
 	 */
 	private function getLimitClause($limit, $offset) {
 
@@ -604,14 +610,14 @@ class DB {
 	}
 
 	/**
-	 * 
+	 *
 	 * Sets the connection settings.
-	 * 
+	 *
 	 * This method should be called only once, before any other methods are called.
-	 * 
+	 *
 	 * @param array $config Array containing the connection data
 	 *                      You can add as many connections as needed.
-	 * 
+	 *
 	 *                      $config = [
 	 *                          "connectionName" => [
 	 *                              "host"     => "...",
@@ -622,15 +628,15 @@ class DB {
 	 *                          "connection2Name" => [ ... ],
 	 *                          ...
 	 *                      ];
-	 * 
+	 *
 	 * @return boolean
-	 * 
+	 *
 	 * @throws \ErrorException if the config is already set
 	 * @throws \InvalidArgumentException 
-	 * 
+	 *
 	 * @access public
 	 * @static
-	 * 
+	 *
 	 */
 	public static function setConfig($config) {
 		
@@ -662,16 +668,16 @@ class DB {
 	}
 
 	/**
-	 * 
+	 *
 	 * Obtains the instance for the requested connection
-	 * 
+	 *
 	 * @param string $connectionName Connection name set in config
-	 * 
+	 *
 	 * @return DB
-	 * 
+	 *
 	 * @access public
 	 * @static
-	 * 
+	 *
 	 */
 	public static function getInstance($connectionName) {
 
