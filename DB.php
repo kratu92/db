@@ -149,8 +149,17 @@ class DB {
 			throw new \InvalidArgumentException("Table or columns not selected.");
 		}
 
-		$columns = is_array($columns) ? implode(",",$columns) : $columns;
-		$columns = self::sanitizeName($columns);
+		if ( $columns != "*" ) {
+			$columns = is_array($columns) ? $columns : explode(",", $columns);
+			$columns = array_map(
+				function($col) {
+					$col = DB::sanitizeName($col);
+					return "`{$col}`";
+				}, 
+				$columns
+			);
+			$columns = implode(",",$columns);
+		}
 
 		$this->resetQuery();
 
