@@ -65,6 +65,11 @@ class DB {
 	private $mysqli;
 
 	/**
+	 * Stores the paramss to bind to the prepared statement
+	 */
+	private $queryParams;
+
+	/**
 	 * 
 	 * Private constructor for singleton pattern.
 	 * 
@@ -147,93 +152,11 @@ class DB {
 		$columns = is_array($columns) ? implode(",",$columns) : $columns;
 		$columns = self::sanitizeName($columns);
 
-		$conditions = is_array($conditions) ? $conditions : [];
+		$this->resetQuery();
 
-		$limit   = intval($limit);
-		$offset  = intval($offset);
-
-		$queryParamTypes = "";
-		$queryParams     = [ &$queryParamTypes ];
-		$currentParam    = 0;
-
-		// WHERE:
-		$whereClause  = "";
-		foreach ( $conditions as $column => $value ) {
-
-			$column = self::sanitizeName($column);
-
-			$whereClause .= !empty($whereClause) ? " AND " : "";
-
-			// Case: [ "column" => "IS NULL" ]
-			if ( self::isNullOperator($value) ) {
-				$whereClause .= " `{$column}` {$value} ";
-				continue;
-			}
-
-			// Case: [ "column" => $value ]
-			if ( !is_array($value) ) {
-				$value = [ "=", $value ];
-			}
-
-			// Case: [ "column" => [$operator, $value] ]
-			[ $operator, $value, ] = $value + [ null, null ];
-
-			if ( self::isValidOperator($operator) ) {
-				throw new \UnexpectedValueException("Invalid SQL operator.");
-			}
-
-			// Case: [ "column" => [ "NOT IN" => [...] ] ]
-			if ( in_array($operator, ["IN", "NOT IN"]) ) {
-
-				if ( !is_array($value) ) {
-					throw new \UnexpectedValueException("Expected array.");
-				}
-
-				$whereClause .= " `{$column}` {$operator} ("
-					. implode(',', array_fill(0, count($value), '?'))
-				. ")";
-
-				$currentParam++;
-				for ( $i = 0; $i < count($value); $i++ ) {
-					$queryParams[]   &= $conditions[$column][1][$i];
-					$queryParamTypes .= $paramTypes[$currentParam];
-				}
-				continue;
-			}
-
-			$whereClause .= " `{$column}` {$operator} ? ";
-
-			$queryParamTypes .= $paramTypes[$currentParam++];
-			$queryParams[]   &= $conditions[$column];
-		}
-
-		$whereClause = !empty($whereClause) ? $whereClause : 1;
-
-		// ORDER BY
-		$orderByClause = "";
-
-		if ( !empty($orderBy) && is_array($orderBy) ) {
-
-			foreach ( $orderBy as $column => $ordBy ) {
-
-				$column = self::sanitizeName($column);
-
-				if ( !in_array($ordBy, self::ORDER_DIRECTIONS) ) {
-					throw new \UnexpectedValueException("Invalid order value.");
-				}
-
-				$orderByClause .= empty($orderBy) ? " ORDER BY " : ", ";
-				$orderByClause .= " {$column} {$ordBy} ";
-			}
-		}
-
-		// LIMIT:
-		$limitClause = "";
-
-		if ( !empty($limit) ) {
-			$limitClause .= " LIMIT {$limit} ";
-			$limitClause .= !empty($offset) ? " OFFSET $offset " : "";
-		}
+		$whereClause   = $this->getWhereClause($conditions, $paramTypes);
+		$orderByClause = $this->getOrderByClause($orderBy);
+		$limitClause   = $this->getLimitClause($limit, $offset);
 
 		$query = "SELECT {$columns} FROM {$table} WHERE {$whereClause}
 			 {$orderByClause} {$limitClause}";
@@ -243,8 +166,11 @@ class DB {
 		if ( empty($stmt) ) {
 			throw new RuntimeException("Invalid query");
 		}
+		
+		if ( !empty($this->queryParams) ) {
+			$stmt->bind_param(...$this->queryParams);
+		}
 
-		$stmt->bind_param(...$queryParams);
 		$stmt->execute();
 
 		$res = $stmt->get_result();
@@ -353,7 +279,123 @@ class DB {
 		return $this->mysqli->prepare($query);
 	}
 
+	/**
+	 * TO DO
+	 */
+	private function resetQuery() {
+		$this->queryParams = [];
+	}
 
+	/**
+	 * TO DO
+	 */
+	private function getWhereClause($conditions, $paramTypes) {
+
+		$conditions = is_array($conditions) ? $conditions : [];
+
+		$currentParam      = 0;
+		$queryParamTypes   = "";
+		$this->queryParams = [ &$queryParamTypes ];
+
+		$whereClause  = "";
+
+		foreach ( $conditions as $column => $value ) {
+
+			$column = self::sanitizeName($column);
+
+			$whereClause .= !empty($whereClause) ? " AND " : "";
+
+			// Case: [ "column" => "IS NULL" ]
+			if ( self::isNullOperator($value) ) {
+				$whereClause .= " `{$column}` {$value} ";
+				continue;
+			}
+
+			// Case: [ "column" => $value ]
+			if ( !is_array($value) ) {
+				$conditions[$column] = $value = [ "=", $value ];
+			}
+
+			// Case: [ "column" => [$operator, $value] ]
+			[ $operator, $value, ] = $value + [ null, null ];
+
+			if ( self::isValidOperator($operator) ) {
+				throw new \UnexpectedValueException("Invalid SQL operator.");
+			}
+
+			$paramType = $paramTypes[$currentParam++];
+
+			// Case: [ "column" => [ "(NOT) IN" => [...] ] ]
+			if ( in_array($operator, ["IN", "NOT IN"]) ) {
+
+				if ( !is_array($value) ) {
+					throw new \UnexpectedValueException("Expected array.");
+				}
+
+				$whereClause .= " `{$column}` {$operator} ("
+					. implode(',', array_fill(0, count($value), '?'))
+				. ")";
+
+				$currentParam++;
+				for ( $i = 0; $i < count($value); $i++ ) {
+					$queryParamTypes    .= $paramType;
+					$this->queryParams[] = &$conditions[$column][1][$i];
+				}
+				
+				continue;
+			}
+
+			$whereClause .= " `{$column}` {$operator} ? ";
+
+			$queryParamTypes    .= $paramType;
+			$this->queryParams[] = &$conditions[$column][1];
+		}
+
+		return !empty($whereClause) ? $whereClause : 1;
+	}
+
+	/**
+	 * TO DO
+	 */
+	private function getOrderByClause($orderBy) {
+
+		$orderByClause = "";
+
+		if ( !empty($orderBy) && is_array($orderBy) ) {
+
+			foreach ( $orderBy as $column => $ordBy ) {
+
+				$column = self::sanitizeName($column);
+
+				if ( !in_array($ordBy, self::ORDER_DIRECTIONS) ) {
+					throw new \UnexpectedValueException("Invalid order value.");
+				}
+
+				$orderByClause .= empty($orderBy) ? " ORDER BY " : ", ";
+				$orderByClause .= " {$column} {$ordBy} ";
+			}
+		}
+
+		return $orderByClause;
+	}
+
+	/**
+	 * TO DO
+	 */
+	private function getLimitClause($limit, $offset) {
+
+		$limit   = intval($limit);
+		$offset  = intval($offset);
+
+		$limitClause = "";
+
+		if ( !empty($limit) ) {
+			$limitClause .= " LIMIT {$limit} ";
+			$limitClause .= !empty($offset) ? " OFFSET $offset " : "";
+		}
+
+		return $limitClause;
+	}
 
 	/**
 	 * 
@@ -384,7 +426,7 @@ class DB {
 	 * @static
 	 * 
 	 */
-	public static function setConfigSettings($config) {
+	public static function setConfig($config) {
 		
 		if ( !empty(self::$config) ) {
 			throw new \ErrorException("Config is already set");
