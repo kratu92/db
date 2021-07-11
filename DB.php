@@ -77,8 +77,8 @@ class DB {
 	 * 
 	 * @return void
 	 * 
-	 * @throws OutOfRangeException if connection does not exist in config
-	 * @throws RuntimeException if the mysql connection cannot be established
+	 * @throws \OutOfRangeException if connection does not exist in config
+	 * @throws \RuntimeException if the mysql connection cannot be established
 	 * 
 	 * @access private
 	 * 
@@ -143,8 +143,8 @@ class DB {
 	 *
 	 * @return array
 	 *
-	 * @throws InvalidArgumentException if the table or columns are not provided
-	 * @throws RuntimeException if there is an error with the query
+	 * @throws \InvalidArgumentException if the table or columns are not provided
+	 * @throws \RuntimeException if there is an error with the query
 	 *
 	 * @access public
 	 */
@@ -161,6 +161,8 @@ class DB {
 		}
 
 		$this->resetQuery();
+
+		$table = self::sanitizeName($table);
 
 		$whereClause   = $this->getWhereClause($conditions, $paramTypes);
 		$orderByClause = $this->getOrderByClause($orderBy);
@@ -224,8 +226,8 @@ class DB {
 	 * 
 	 * @return int                   Returns the id of the inserted/updated row
 	 * 
-	 * @throws InvalidArgumentException if the table or columns are not provided.
-	 * @throws UnexpectedValueException if there is a parameter mismatch.
+	 * @throws \InvalidArgumentException if the table or columns are not provided.
+	 * @throws \UnexpectedValueException if there is a parameter mismatch.
 	 *                               	
 	 * 
 	 * @access public
@@ -252,6 +254,8 @@ class DB {
 		}
 
 		$this->resetQuery();
+
+		$table = self::sanitizeName($table);
 
 		$columnNames = implode(",", $this->formatColumns(array_keys($columns)));
 		$values      = implode(',', array_fill(0, count($columns), '?'));
@@ -296,11 +300,87 @@ class DB {
 		$stmt->store_result();
 
 		if ( !empty($stmt->error) ) {
-			throw new \RuntimeException("An error ocurred when inserting the row.");
+			throw new \RuntimeException("An error ocurred when inserting the row. 
+				{$stmt->error}");
 		}
 
 		return $stmt->insert_id;
 	}
+
+	/**
+     * 
+	 * Updates data from a table
+	 * 
+     * @param string $table       Table to update
+     * @param array  $columns     Associative array with the name of the column
+	 *                            to update and the new value.
+	 *                            $columns = [ "columnName" => "value", ... ]
+     * @param array  $conditions  Array to define the query conditions
+	 *                            The updated columns need to satisfy all conditions
+	 *                            Eg:
+	 *                            [
+	 *                              "id"      => 1,             // Equals (option 1)
+	 *                              "name"    => ["=", "test"], // Equals (option 2)
+	 *                              "user_id" => [">", 3],      // Other operations
+	 *                              "title"   => "IS NOT NULL", // NULL operations
+	 *                            ]
+     * @param string $paramTypes  String with the param types. 
+	 *                            It must include types for both $columns and $conditions
+	 *                            One per column/condition.
+	 *                            	i = integer
+	 *                            	d = double
+	 *                            	s = strings/text/dates...
+	 *                            Eg: $paramTypes = "iis"
+	 *                            Exclude the type for IS (NOT) NULL conditions
+     * @return boolean
+	 * 
+	 * @throws \InvalidArgumentException if table or columns are not selected
+	 * 
+	 * @access public
+	 * 
+     */
+    function update($table, $columns, $conditions, $paramTypes) {
+
+        if ( empty($table) || empty($columns) )  {
+			throw new \InvalidArgumentException("Table or columns not selected.");
+		}
+
+		$this->resetQuery();
+
+		$table = self::sanitizeName($table);
+		
+		$columnsClause = $this->formatColumns(array_keys($columns), true);
+		$columnsClause = implode(",", $columnsClause);
+
+		$columnTypes       = substr($paramTypes, 0, count($columns));
+	    $this->queryParams = [ &$columnTypes ];
+		
+	    foreach ( $columns as $columnName => $value ) {
+		    $this->queryParams[] = &$columns[$columnName];
+	    }
+
+		$whereClause = $this->getWhereClause(
+			$conditions, 
+			substr($paramTypes, count($columns))
+		);
+
+		$sql  = "UPDATE `{$table}` SET {$columnsClause} WHERE {$whereClause}";
+	    $stmt = $this->mysqli->prepare($sql);
+        
+        if ( empty($stmt) ) {
+            throw new \RuntimeException("Invalid query");
+        }
+
+        $stmt->bind_param(...$this->queryParams);
+	    $stmt->execute();
+
+        if ( !empty($stmt->error) ) {
+            throw new \RuntimeException("An error ocurred when updating the table. 
+				{$stmt->error}");
+        }
+
+	    return true;
+    }
 
 	/**
 	 * 
@@ -310,8 +390,8 @@ class DB {
 	 * 
 	 * @return array
 	 * 
-	 * @throws UnexpectedValueException if the type of the query is not SELECT
-	 * @throws RuntimeException if the query results in a mysql error
+	 * @throws \UnexpectedValueException if the type of the query is not SELECT
+	 * @throws \RuntimeException if the query results in a mysql error
 	 * 
 	 * @access public
 	 * 
@@ -350,8 +430,8 @@ class DB {
 	 * 
 	 * @return array
 	 * 
-	 * @throws UnexpectedValueException if the type of the query is not SELECT
-	 * @throws RuntimeException if the query results in a mysql error
+	 * @throws \UnexpectedValueException if the type of the query is not SELECT
+	 * @throws \RuntimeException if the query results in a mysql error
 	 * 
 	 * @access public
 	 * 
@@ -401,12 +481,12 @@ class DB {
 	/**
 	 * TO DO
 	 */
-	private function formatColumns($columns) {
+	private function formatColumns($columns, $isForUpdate=false) {
 
 		return array_map(
 			function($col) {
 				$col = DB::sanitizeName($col);
-				return "`{$col}`";
+				return "`{$col}`" . ( $isForUpdate ? " = ?" : "" );
 			}, 
 			$columns
 		);
@@ -420,7 +500,7 @@ class DB {
 		$conditions = is_array($conditions) ? $conditions : [];
 
 		$currentParam      = 0;
-		$queryParamTypes   = "";
+		$queryParamTypes   = $this->queryParams[0] ?? "";
 		$this->queryParams = [ &$queryParamTypes ];
 
 		$whereClause  = "";
@@ -545,8 +625,8 @@ class DB {
 	 * 
 	 * @return boolean
 	 * 
-	 * @throws ErrorException if the config is already set
-	 * @throws InvalidArgumentException 
+	 * @throws \ErrorException if the config is already set
+	 * @throws \InvalidArgumentException 
 	 * 
 	 * @access public
 	 * @static
