@@ -182,8 +182,8 @@ class DB {
 		$stmt->execute();
 
 		if ( !empty($stmt->error) ) {
-            throw new \RuntimeException("An error ocurred when fetching the data.");
-        }
+			throw new \RuntimeException("An error ocurred when fetching the data.");
+		}
 
 		$res = $stmt->get_result();
 
@@ -204,13 +204,13 @@ class DB {
 
 	/**
 	 * 
-     * Inserts a row to the selected table
+	 * Inserts a row to the selected table
 	 * 
-     * @param string $table          Table where the data is going to be inserted
-     * @param array  $columns        Associative array with the name of the column
+	 * @param string $table          Table where the data is going to be inserted
+	 * @param array  $columns        Associative array with the name of the column
 	 *                               and the value to insert.
 	 *                               $columns = [ "columnName" => "value", ... ]
-     * @param  array $paramTypes     String with the param types
+	 * @param  array $paramTypes     String with the param types
 	 *                               One per condition.
 	 *                               	i = integer
 	 *                               	d = double
@@ -230,18 +230,18 @@ class DB {
 	 * 
 	 * @access public
 	 * 
-     */
+	 */
 
-    public function insert($table, $columns=[], $paramTypes="", 
+	public function insert($table, $columns=[], $paramTypes="", 
 		$ODKUColumns=[], $ODKUParamTypes="") {
 
-        if ( 
+		if ( 
 			empty($table) 
 			|| !is_array($columns) 
-            || ( !empty($ODKUColumns) && !is_array($ODKUColumns) )  
-        ) {
-            throw new \InvalidArgumentException("Invalid parameters.");
-        }
+			|| ( !empty($ODKUColumns) && !is_array($ODKUColumns) )  
+		) {
+			throw new \InvalidArgumentException("Invalid parameters.");
+		}
 
 		if ( 
 			count($columns) != strlen($paramTypes) 
@@ -253,53 +253,53 @@ class DB {
 
 		$this->resetQuery();
 
-	    $columnNames = implode(",", $this->formatColumns(array_keys($columns)));
+		$columnNames = implode(",", $this->formatColumns(array_keys($columns)));
 		$values      = implode(',', array_fill(0, count($columns), '?'));
 		
 		$paramTypes       .= !empty($ODKUParamTypes) ? $ODKUParamTypes : "";
-	    $this->queryParams = [ &$paramTypes ];
+		$this->queryParams = [ &$paramTypes ];
 
-        foreach ( $columns as $column => $value ) {
+		foreach ( $columns as $column => $value ) {
 			$this->queryParams[] = &$columns[$column];
-        }
+		}
 
 		$sql = "INSERT INTO `{$table}` ({$columnNames}) VALUES ({$values})
 			 ON DUPLICATE KEY UPDATE ";
 
-        $ODKUColumns     = is_array($ODKUColumns)  ? $ODKUColumns    : [];
+		$ODKUColumns     = is_array($ODKUColumns)  ? $ODKUColumns    : [];
 
-	    if ( empty($ODKUColumns) ) {
+		if ( empty($ODKUColumns) ) {
 
-		    // When trying to insert an element with a unique id no action is done.
-		    $sql .= " `id` = `id`";
+			// When trying to insert an element with a unique id no action is done.
+			$sql .= " `id` = `id`";
 
-	    } else {
+		} else {
 
-		    foreach ( $ODKUColumns as $column => $value ) {
-			    $queryParams[] = &$ODKUColumns[$column];
+			foreach ( $ODKUColumns as $column => $value ) {
+				$queryParams[] = &$ODKUColumns[$column];
 				$column = $this->sanitizeName($column);
-			    $sql .= " `{$column}` = ?, ";
-		    }
+				$sql .= " `{$column}` = ?, ";
+			}
 
-		    $sql .= " id = LAST_INSERT_ID(id) "; // Needed to get the insert_id afterwards
-	    }
+			$sql .= " id = LAST_INSERT_ID(id) "; // Needed to get the insert_id afterwards
+		}
 
-	    $stmt = $this->mysqli->prepare($sql);
+		$stmt = $this->mysqli->prepare($sql);
 
-        if ( empty($stmt) ) {
-            throw new \RuntimeException("Invalid query");
-        }
+		if ( empty($stmt) ) {
+			throw new \RuntimeException("Invalid query");
+		}
 
-        $stmt->bind_param(...$this->queryParams);
-	    $stmt->execute();
-	    $stmt->store_result();
+		$stmt->bind_param(...$this->queryParams);
+		$stmt->execute();
+		$stmt->store_result();
 
-        if ( !empty($stmt->error) ) {
-            throw new \RuntimeException("An error ocurred when inserting the row.");
-        }
+		if ( !empty($stmt->error) ) {
+			throw new \RuntimeException("An error ocurred when inserting the row.");
+		}
 
-	    return $stmt->insert_id;
-    }
+		return $stmt->insert_id;
+	}
 
 	/**
 	 * 
