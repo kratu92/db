@@ -114,14 +114,14 @@ class DB {
 	 *
 	 * @param  string        $table       Table to fetch
 	 * @param  string/array  $columns     Option 1 (string):
-	 *                                       Comma separated columns to fetch.
-	 *                                       Eg: $columns = "id,name"
+	 *                                    	Comma separated columns to fetch.
+	 *                                    	Eg: $columns = "id,name"
 	 *                                    Option 2 (array):
-	 *                                       Array of strings the columns to fetch
-	 *                                       Eg: $columns = [ "id", name" ]
+	 *                                      Array of strings the columns to fetch
+	 *                                      Eg: $columns = [ "id", name" ]
 	 * @param  array         $conditions  Array to define the query conditions
 	 *                                    The results will satisfy all conditions
-	 *                                    Examples:
+	 *                                    Eg:
 	 *                                    [
 	 *                                      "id"      => 1,             // Equals (option 1)
 	 *                                      "name"    => ["=", "test"], // Equals (option 2)
@@ -130,6 +130,10 @@ class DB {
 	 *                                    ]
 	 * @param  array         $paramTypes  String with the param types
 	 *                                    One per condition.
+	 *                                    	i = integer
+	 *                                    	d = double
+	 *                                    	s = strings/text/dates...
+	 *                                    Eg: $paramTypes = "iis"
 	 *                                    Exclude the type for IS (NOT) NULL conditions
 	 * @param  array         $orderBy     Array to define the order of the query
 	 * @param  integer       $limit       Number of results to retrieve.
@@ -140,10 +144,12 @@ class DB {
 	 * @return array
 	 *
 	 * @throws InvalidArgumentException if the table or columns are not provided
+	 * @throws RuntimeException if there is an error with the query
 	 *
 	 * @access public
 	 */
-	public function get($table, $columns="*", $conditions=[], $paramTypes="", $orderBy=[], $limit=0, $offset=0) {
+	public function get($table, $columns="*", $conditions=[], $paramTypes="", 
+		$orderBy=[], $limit=0, $offset=0) {
 
 		if ( empty($table) || empty($columns) )  {
 			throw new \InvalidArgumentException("Table or columns not selected.");
@@ -151,14 +157,7 @@ class DB {
 
 		if ( $columns != "*" ) {
 			$columns = is_array($columns) ? $columns : explode(",", $columns);
-			$columns = array_map(
-				function($col) {
-					$col = DB::sanitizeName($col);
-					return "`{$col}`";
-				}, 
-				$columns
-			);
-			$columns = implode(",",$columns);
+			$columns = implode(",", $this->formatColumns($columns));
 		}
 
 		$this->resetQuery();
@@ -173,7 +172,7 @@ class DB {
 		$stmt = $this->mysqli->prepare($query);
 
 		if ( empty($stmt) ) {
-			throw new RuntimeException("Invalid query");
+			throw new \RuntimeException("Invalid query");
 		}
 		
 		if ( !empty($this->queryParams) ) {
@@ -181,6 +180,10 @@ class DB {
 		}
 
 		$stmt->execute();
+
+		if ( !empty($stmt->error) ) {
+            throw new \RuntimeException("An error ocurred when fetching the data.");
+        }
 
 		$res = $stmt->get_result();
 
@@ -198,6 +201,105 @@ class DB {
 
 		return $results;
 	}
+
+	/**
+	 * 
+     * Inserts a row to the selected table
+	 * 
+     * @param string $table          Table where the data is going to be inserted
+     * @param array  $columns        Associative array with the name of the column
+	 *                               and the value to insert.
+	 *                               $columns = [ "columnName" => "value", ... ]
+     * @param  array $paramTypes     String with the param types
+	 *                               One per condition.
+	 *                               	i = integer
+	 *                               	d = double
+	 *                               	s = strings/text/dates...
+	 *                               Eg: $paramTypes = "iis"
+	 * @param array  $ODKUColumns    On duplicate Key values to update.
+	 *                               Same format as $columns.
+	 *                               Default: No fields will be updated
+	 * @param string $ODKUParamTypes String with param types for $ODKUColumns
+	 *                               Same format as $paramTypes.
+	 * 
+	 * @return int                   Returns the id of the inserted/updated row
+	 * 
+	 * @throws InvalidArgumentException if the table or columns are not provided.
+	 * @throws UnexpectedValueException if there is a parameter mismatch.
+	 *                               	
+	 * 
+	 * @access public
+	 * 
+     */
+
+    public function insert($table, $columns=[], $paramTypes="", 
+		$ODKUColumns=[], $ODKUParamTypes="") {
+
+        if ( 
+			empty($table) 
+			|| !is_array($columns) 
+            || ( !empty($ODKUColumns) && !is_array($ODKUColumns) )  
+        ) {
+            throw new \InvalidArgumentException("Invalid parameters.");
+        }
+
+		if ( 
+			count($columns) != strlen($paramTypes) 
+			|| ( !empty($ODKUColumns) 
+				&& ( count($ODKUColumns) != strlen($ODKUParamTypes) ) )
+		) {
+			throw new \UnexpectedValueException("Parameters mismatch.");
+		}
+
+		$this->resetQuery();
+
+	    $columnNames = implode(",", $this->formatColumns(array_keys($columns)));
+		$values      = implode(',', array_fill(0, count($columns), '?'));
+		
+		$paramTypes       .= !empty($ODKUParamTypes) ? $ODKUParamTypes : "";
+	    $this->queryParams = [ &$paramTypes ];
+
+        foreach ( $columns as $column => $value ) {
+			$this->queryParams[] = &$columns[$column];
+        }
+
+		$sql = "INSERT INTO `{$table}` ({$columnNames}) VALUES ({$values})
+			 ON DUPLICATE KEY UPDATE ";
+
+        $ODKUColumns     = is_array($ODKUColumns)  ? $ODKUColumns    : [];
+
+	    if ( empty($ODKUColumns) ) {
+
+		    // When trying to insert an element with a unique id no action is done.
+		    $sql .= " `id` = `id`";
+
+	    } else {
+
+		    foreach ( $ODKUColumns as $column => $value ) {
+			    $queryParams[] = &$ODKUColumns[$column];
+				$column = $this->sanitizeName($column);
+			    $sql .= " `{$column}` = ?, ";
+		    }
+
+		    $sql .= " id = LAST_INSERT_ID(id) "; // Needed to get the insert_id afterwards
+	    }
+
+	    $stmt = $this->mysqli->prepare($sql);
+
+        if ( empty($stmt) ) {
+            throw new \RuntimeException("Invalid query");
+        }
+
+        $stmt->bind_param(...$this->queryParams);
+	    $stmt->execute();
+	    $stmt->store_result();
+
+        if ( !empty($stmt->error) ) {
+            throw new \RuntimeException("An error ocurred when inserting the row.");
+        }
+
+	    return $stmt->insert_id;
+    }
 
 	/**
 	 * 
@@ -298,6 +400,20 @@ class DB {
 	/**
 	 * TO DO
 	 */
+	private function formatColumns($columns) {
+
+		return array_map(
+			function($col) {
+				$col = DB::sanitizeName($col);
+				return "`{$col}`";
+			}, 
+			$columns
+		);
+	}
+
+	/**
+	 * TO DO
+	 */
 	private function getWhereClause($conditions, $paramTypes) {
 
 		$conditions = is_array($conditions) ? $conditions : [];
@@ -381,7 +497,7 @@ class DB {
 				}
 
 				$orderByClause .= empty($orderBy) ? " ORDER BY " : ", ";
-				$orderByClause .= " {$column} {$ordBy} ";
+				$orderByClause .= " `{$column}` {$ordBy} ";
 			}
 		}
 
