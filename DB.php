@@ -71,7 +71,11 @@ class DB {
 	private $queryParams;
 
 	/**
-	 *
+	 * Stores the prepared statement
+	 */
+	private $stmt;
+
+	/**
 	 * Private constructor for singleton pattern.
 	 *
 	 * @param string $connectionName Name of the connection in the $config variable
@@ -169,44 +173,27 @@ class DB {
 		$orderByClause = $this->getOrderByClause($orderBy);
 		$limitClause   = $this->getLimitClause($limit, $offset);
 
-		$query = "SELECT {$columns} FROM {$table} WHERE {$whereClause}
+		$sql = "SELECT {$columns} FROM `{$table}` WHERE {$whereClause}
 			 {$orderByClause} {$limitClause}";
 
-		$stmt = $this->mysqli->prepare($query);
+		$this->runStmt($sql);
 
-		if ( empty($stmt) ) {
-			throw new \RuntimeException("Invalid query");
-		}
-		
-		if ( !empty($this->queryParams) ) {
-			$stmt->bind_param(...$this->queryParams);
-		}
-
-		$stmt->execute();
-
-		if ( !empty($stmt->error) ) {
-			throw new \RuntimeException("An error ocurred when fetching the data.");
-		}
-
-		$res = $stmt->get_result();
-
-		if ( !$res ) {
-			return [];
-		}
+		$dbResult = $this->stmt->get_result();
 
 		$results = [];
 
-		while ( $row = $res->fetch_assoc() ) {
-			$results[] = $row;
+		if ( $dbResult ) {
+			while ( $row = $dbResult->fetch_assoc() ) {
+				$results[] = $row;
+			}
 		}
 
-		$stmt->close();
+		$this->stmt->close();
 
 		return $results;
 	}
 
 	/**
-	 *
 	 * Inserts a row to the selected table
 	 *
 	 * @param string $table          Table where the data is going to be inserted
@@ -290,26 +277,13 @@ class DB {
 			$sql .= " id = LAST_INSERT_ID(id) "; // Needed to get the insert_id afterwards
 		}
 
-		$stmt = $this->mysqli->prepare($sql);
+		$this->runStmt($sql);
+		$this->stmt->store_result();
 
-		if ( empty($stmt) ) {
-			throw new \RuntimeException("Invalid query");
-		}
-
-		$stmt->bind_param(...$this->queryParams);
-		$stmt->execute();
-		$stmt->store_result();
-
-		if ( !empty($stmt->error) ) {
-			throw new \RuntimeException("An error ocurred when inserting the row. 
-				{$stmt->error}");
-		}
-
-		return $stmt->insert_id;
+		return $this->stmt->insert_id;
 	}
 
 	/**
-	 *
 	 * Updates data from a table
 	 *
 	 * @param string $table       Table to update
@@ -367,26 +341,14 @@ class DB {
 		);
 
 		$sql  = "UPDATE `{$table}` SET {$columnsClause} WHERE {$whereClause}";
-		$stmt = $this->mysqli->prepare($sql);
 
-		if ( empty($stmt) ) {
-			throw new \RuntimeException("Invalid query");
-		}
-
-		$stmt->bind_param(...$this->queryParams);
-		$stmt->execute();
-
-		if ( !empty($stmt->error) ) {
-			throw new \RuntimeException("An error ocurred when updating the table. 
-				{$stmt->error}");
-		}
+		$this->runStmt($sql);
 
 		return true;
 	}
 
 
 	/**
-	 *
 	 * Deletes rows from the chosen table
 	 *
 	 * @param string $table      Table in which the rows are going to be deleted.
@@ -435,24 +397,12 @@ class DB {
 
 		$sql = "DELETE FROM `{$table}` WHERE {$whereClause}";
 
-		$stmt = $this->mysqli->prepare($sql);
-
-		if ( empty($stmt) ) {
-			throw new \RuntimeException("Invalid query.");
-		}
-
-		$stmt->bind_param(...$this->queryParams);
-		$stmt->execute();
-
-		if ( !empty($stmt->error)) {
-			throw new \RuntimeException("An errror ocurred deleting from table.");
-		}
+		$this->runStmt($sql);
 
 		return true;
 	}
 	
 	/**
-	 *
 	 * Returns an array with the results of a select query
 	 *
 	 * @param string $selectQuery Query to retrieve. Must start with SELECT
@@ -490,7 +440,6 @@ class DB {
 	}
 	
 	/**
-	 *
 	 * Returns the first result for a query.
 	 *
 	 * Common use: when you expect just one result.
@@ -511,7 +460,6 @@ class DB {
 	}
 
 	/**
-	 *
 	 * Executes a query as in mysqli::query
 	 *
 	 * @param string $query 
@@ -526,7 +474,6 @@ class DB {
 	}
 	
 	/**
-	 *
 	 * Prepares an SQL statement for execution as in mysqli::prepare
 	 *
 	 * @param string $query
@@ -541,16 +488,61 @@ class DB {
 	}
 
 	/**
-	 * TO DO
+	 * Resets the class attributes needed for the query.
+	 *
+	 * @return void 
+	 *
 	 * @access private
+	 *
 	 */
 	private function resetQuery() {
+		$this->stmt        = null;
 		$this->queryParams = [];
 	}
 
 	/**
-	 * TO DO
+	 * Prepares the statement, binds the query params and executes
+	 * it to query the database securely.
 	 * 
+	 * @param string $sql The query to prepare
+	 * 
+	 * @return void
+	 * 
+	 * @throws \RuntimeException if prepare statement fails 
+	 * 
+	 * @access private
+	 * 
+	 */
+	private function runStmt($sql) {
+
+		$this->stmt = $this->mysqli->prepare($sql);
+
+		if ( empty($stmt) ) {
+			throw new \RuntimeException("Invalid query.");
+		}
+
+		if ( !empty($this->queryParams) ) {
+			$this->stmt->bind_param(...$this->queryParams);
+		}
+
+		$this->stmt->execute();
+
+		if ( !empty($this->stmt->error) ) {
+			throw new \RuntimeException("An error ocurred: {$stmt->error}.");
+		}
+	}
+
+	/**
+	 * Removes unexpected chars and adds backticks to the column names.
+	 * If the query is for an UPDATE query, it adds the "= ?"
+	 * portion of the query.
+	 *
+	 * @param array    $columns     Array of strings with the column names.
+	 * @param boolean  $isForUpdate Determine whether it is for an UPDATE query
+	 *                              or not. If it is "= ?" will be added.
+	 *
+	 * @return array  Array with the formatted columns
+	 *
 	 * @access private
 	 */
 	private function formatColumns($columns, $isForUpdate=false) {
@@ -565,8 +557,18 @@ class DB {
 	}
 
 	/**
-	 * TO DO
+	 * Builds the WHERE Clause from the given conditions.
+	 *
+	 * @param array   $conditions Array with the conditions.
+	 *                            See params for get, update or delete.
+	 * @param string  $paramTypes String with the param types for the 
+	 *                            given $conditions.
+	 *                            See params for get, update or delete.
+	 *
+	 * @return string
+	 *
 	 * @access private
+	 *
 	 */
 	private function getWhereClause($conditions, $paramTypes) {
 
@@ -634,8 +636,15 @@ class DB {
 	}
 
 	/**
-	 * TO DO
+	 * Builds the ORDER BY clause with the given conditions.
+	 *
+	 * @param array $orderBy Array with the order conditions.
+	 *                       See params for the get function.
+	 *
+	 * @return string
+	 *
 	 * @access private
+	 *
 	 */
 	private function getOrderByClause($orderBy) {
 
@@ -660,8 +669,15 @@ class DB {
 	}
 
 	/**
-	 * TO DO
+	 * Builds the LIMIT clause with the given limit and offset.
+	 *
+	 * @param integer $limit   Number of results.
+	 * @param integer $offset  Offset from which the results will be retrieved.
+	 *
+	 * @return string
+	 *
 	 * @access private
+	 *
 	 */
 	private function getLimitClause($limit, $offset) {
 
@@ -679,7 +695,6 @@ class DB {
 	}
 
 	/**
-	 *
 	 * Sets the connection settings.
 	 *
 	 * This method should be called only once, before any other methods are called.
@@ -737,7 +752,6 @@ class DB {
 	}
 
 	/**
-	 *
 	 * Obtains the instance for the requested connection
 	 *
 	 * @param string $connectionName Connection name set in config
@@ -758,21 +772,45 @@ class DB {
 	}
 
 	/**
-	 * TO DO Comment
+	 * Determines whether the operator is valid or not
+	 * 
+	 * @param string $operator Operator to check.
+	 *                         IS NULL/IS NOT NULL Excluded.
+	 * 
+	 * @return boolean
+	 * 
+	 * @access private
+	 * 
 	 */
 	private static function isValidOperator($operator) {
+		$operator = strtoupper($operator);
 		return !in_array($operator, self::ALLOWED_OPERATORS);
 	}
 
 	/**
-	 * TO DO Comment
+	 * Determines whether the null operator is valid or not
+	 * 
+	 * @param string $operator Operator matches IS NULL or IS NOT NULL.
+	 * 
+	 * @return boolean
+	 * 
+	 * @access private
 	 */
 	private static function isNullOperator($operator) {
+		$operator = strtoupper($operator);
 		return in_array($operator, self::NULL_OPERATORS);
 	}
 
 	/**
-	 * TO DO Comment
+	 * Removes unwanted character from the given name.
+	 * Used for table and column names.
+	 * 
+	 * @param string $name Name to sanitize
+	 * 
+	 * @return string
+	 * 
+	 * @access private
+	 * 
 	 */
 	private static function sanitizeName($name) {
 		return preg_replace(self::SANITIZE_REGEX, "", $name);

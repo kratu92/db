@@ -39,13 +39,16 @@ Now you will be able to use the library to interact with your database:
 ```PHP
 
 $db = DB::getInstance("main");
-
-$result = $db->get(
-    "users",
-    "*", 
-    [ "id" => [ ">", 0], ],
-    "i"
-);
+try {
+    $result = $db->get(
+        "users",
+        "*", 
+        [ "id" => [ ">", 0], ],
+        "i"
+    );
+} catch ( Exception $e ) {
+    echo $e->getMessage();
+}
 
 ```
 
