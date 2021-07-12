@@ -24,6 +24,7 @@ namespace kratu92;
 
 use InvalidArgumentException;
 use RuntimeException;
+use Throwable;
 use UnexpectedValueException;
 
 class DB {
@@ -335,6 +336,7 @@ class DB {
 	 * @return boolean
 	 *
 	 * @throws \InvalidArgumentException if table or columns are not selected
+	 * @throws \RuntimeException if a query error occurs
 	 *
 	 * @access public
 	 *
@@ -382,6 +384,73 @@ class DB {
 		return true;
 	}
 
+
+	/**
+	 *
+	 * Deletes rows from the chosen table
+	 *
+	 * @param string $table      Table in which the rows are going to be deleted.
+	 * @param array  $conditions Array to define the query conditions
+	 *                           The deleted columns need to satisfy all conditions
+	 *                           Eg:
+	 *                           [
+	 *                             "id"      => 1,             // Equals (option 1)
+	 *                             "name"    => ["=", "test"], // Equals (option 2)
+	 *                             "user_id" => [">", 3],      // Other operations
+	 *                             "title"   => "IS NOT NULL", // NULL operations
+	 *                           ]
+	 * @param string $paramTypes String with the param types. 
+	 *                            One per condition.
+	 *                            	i = integer
+	 *                            	d = double
+	 *                            	s = strings/text/dates...
+	 *                            Eg: $paramTypes = "iis"
+	 *
+	 * @return boolean
+	 *
+	 * @throws \InvalidArgumentException if a table is not selected
+	 * @throws \UnexpectedValueException if columns and param types are mismatched
+	 * @throws \UnexpectedValueException if columns and param types are mismatched
+	 *
+	 * @access public
+	 *
+	 */
+	function delete($table, $conditions, $paramTypes) {
+
+		if ( empty($table) ) {
+			throw new \InvalidArgumentException("No table was selected.");
+		}
+
+		if ( 
+			!is_array($conditions)
+			|| count($conditions) != strlen($paramTypes) 
+		) {
+			throw new \UnexpectedValueException("Params mismatch.");
+		}
+		
+		$this->resetQuery();
+		
+		$table       = self::sanitizeName($table);
+		$whereClause = $this->getWhereClause($conditions, $paramTypes);
+
+		$sql = "DELETE FROM `{$table}` WHERE {$whereClause}";
+
+		$stmt = $this->mysqli->prepare($sql);
+
+		if ( empty($stmt) ) {
+			throw new \RuntimeException("Invalid query.");
+		}
+
+		$stmt->bind_param(...$this->queryParams);
+		$stmt->execute();
+
+		if ( !empty($stmt->error)) {
+			throw new \RuntimeException("An errror ocurred deleting from table.");
+		}
+
+		return true;
+	}
+	
 	/**
 	 *
 	 * Returns an array with the results of a select query
